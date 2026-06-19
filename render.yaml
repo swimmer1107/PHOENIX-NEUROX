@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: quantumbridge-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: NOTION_API_KEY
+        sync: false
+      - key: NOTION_FINDINGS_DB_ID
+        sync: false
+      - key: NOTION_TASKS_DB_ID
+        sync: false
+      - key: NOTION_AUDIT_DB_ID
+        sync: false
+      - key: NOTION_PROJECT_DB_ID
+        sync: false
+      - key: ARMORIQ_API_KEY
+        sync: false
+      - key: ARMORIQ_PROJECT_ID
+        sync: false
+      - key: ARMORIQ_POLICY_ID
+        sync: false

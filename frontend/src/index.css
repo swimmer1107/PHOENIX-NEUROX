@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #0a0a0f;
+  --color-card: #0f1117;
+  --color-primary: #00ff88;
+  --color-secondary: #00d4ff;
+  --color-danger: #ff4444;
+  --color-warning: #ffaa00;
+
+  --font-sans: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --shadow-glow: 0 0 20px rgba(0,255,136,0.3);
+  --shadow-glow-cyan: 0 0 20px rgba(0,212,255,0.3);
+  --shadow-glow-danger: 0 0 20px rgba(255,68,68,0.3);
+
+  --animate-pulse-glow: pulseGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(255,68,68,0.3), inset 0 0 10px rgba(255,68,68,0.05); }
+  50% { box-shadow: 0 0 40px rgba(255,68,68,0.8), inset 0 0 20px rgba(255,68,68,0.1); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 1;
+    text-shadow: 0 0 10px #00ff88;
+  }
+  50% {
+    opacity: 0.7;
+    text-shadow: none;
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@layer base {
+  body {
+    @apply bg-background text-white font-sans overflow-x-hidden;
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    @apply bg-card border border-[#00ff8826] shadow-lg rounded-xl;
+    backdrop-filter: blur(12px);
+  }
+  
+  .glass-card-hover {
+    @apply hover:border-primary hover:shadow-glow transition-all duration-300;
+  }
+
+  .text-gradient {
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    background-image: linear-gradient(to right, var(--color-primary), var(--color-secondary));
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0a0f;
+}
+::-webkit-scrollbar-thumb {
+  background: #00ff88;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00d4ff;
+}
+
+@keyframes modalSlideIn {
+  from { opacity: 0; transform: translateY(-16px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px currentColor; }
+  50% { opacity: 0.4; box-shadow: 0 0 2px currentColor; }
+}
+@keyframes navDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+gunicorn
+python-multipart
+anthropic
+pydantic
+reportlab
+python-jose
+aiofiles
+python-dotenv
+httpx
