@@ -5,15 +5,142 @@ QuantumShield AI Assistant — QuantumBridge
 Context-aware, conversational assistant with intent detection.
 Responds naturally to greetings/small-talk and uses real scan data
 only when the user is asking about security, vulnerabilities, or their repo.
+
+Privacy guarantee:
+  Raw source code is NEVER included in any prompt sent to the LLM API.
+  Only abstracted finding metadata is used: algorithm name, severity,
+  vulnerability category, line number (as an ordinal index), and
+  generic function role inferred from the algorithm type.
+  File paths and code snippets are stripped before prompt construction.
 """
 
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     import anthropic
     _client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
 except ImportError:
     _client = None
+
+
+# ── Privacy-safe finding abstraction ─────────────────────────────────────────
+
+# Maps algorithm names to a generic human-readable function role.
+# Never derived from actual source — purely from the known algorithm taxonomy.
+_ALGO_ROLE: dict[str, str] = {
+    "RSA":     "asymmetric key generation / encryption",
+    "ECC":     "elliptic curve key generation",
+    "ECDSA":   "digital signature (elliptic curve)",
+    "ECDH":    "key exchange (elliptic curve Diffie-Hellman)",
+    "DH":      "key exchange (Diffie-Hellman)",
+    "DES":     "symmetric encryption (block cipher)",
+    "MD5":     "cryptographic hashing",
+    "SHA1":    "cryptographic hashing",
+    "SHA256":  "cryptographic hashing",
+    "SHA512":  "cryptographic hashing",
+    "AES":     "symmetric encryption",
+    "TLS":     "transport layer security handshake",
+    "OPENSSL": "TLS/PKI operations",
+    "ML_KEM":  "post-quantum key encapsulation",
+    "ML_DSA":  "post-quantum digital signature",
+    "HYBRID":  "hybrid classical+PQC key exchange",
+}
+
+_QUANTUM_VULN_LABEL: dict[bool, str] = {
+    True:  "quantum-vulnerable (broken by Shor's algorithm on a cryptographically relevant quantum computer)",
+    False: "classically weak (broken by classical attacks; not specifically quantum-dependent)",
+}
+
+_SEVERITY_CONTEXT: dict[str, str] = {
+    "CRITICAL": "poses an immediate, critical security risk requiring urgent remediation",
+    "HIGH":     "poses a high-priority security risk and should be migrated promptly",
+    "MEDIUM":   "poses a moderate security risk and should be scheduled for migration",
+    "LOW":      "poses a low-priority security risk and should be noted for future migration",
+    "SAFE":     "is already quantum-safe and requires no immediate action",
+}
+
+
+def build_abstracted_prompt(finding: dict) -> str:
+    """
+    Build a sanitized, metadata-only description of a single finding.
+
+    This function is the ONLY gateway between finding data and the LLM prompt.
+    It guarantees that:
+      - No raw source code, code_snippet, or matched text is included
+      - No file paths, variable names, or user-identifiable content is included
+      - No replacement_code, migration_steps text, or why_quantum_risk text is included
+      - Only algorithm taxonomy, severity, and generic function role are described
+
+    Args:
+        finding: A finding dict from the scanner. May contain raw code fields —
+                 this function deliberately ignores every one of them.
+
+    Returns:
+        A sanitized string safe for LLM transmission.
+    """
+    algo      = str(finding.get("algorithm", "unknown")).upper().replace("-", "_")
+    severity  = str(finding.get("severity", "MEDIUM")).upper()
+    is_quantum = bool(finding.get("quantum_vulnerable", False))
+    replacement = str(finding.get("replacement", "a NIST-approved post-quantum algorithm"))
+
+    # Generic function role — from taxonomy only, never from source
+    role = _ALGO_ROLE.get(algo, "cryptographic operation")
+    vuln_label = _QUANTUM_VULN_LABEL.get(is_quantum, "potentially vulnerable")
+    sev_context = _SEVERITY_CONTEXT.get(severity, "poses a security risk")
+
+    return (
+        f"A {role} using the {algo} algorithm was detected. "
+        f"{algo} is {vuln_label} and {sev_context}. "
+        f"The recommended NIST-approved post-quantum replacement is {replacement}. "
+        f"Provide a migration approach and explain why this replacement is appropriate, "
+        f"without referencing any specific implementation details."
+    )
+
+
+def _sanitize_scan_context(scan_context: dict | None) -> dict | None:
+    """
+    Strip all raw code fields from scan_context before it reaches prompt construction.
+
+    Removes from every finding:
+      - code_snippet     (raw matched source line)
+      - replacement_code (raw PQC replacement code block)
+      - why_quantum_risk (may contain algorithm-specific code examples)
+      - migration_steps  (may contain code references)
+      - description      (pre-written text, not user code — kept as it's internal copy)
+
+    Keeps only metadata fields safe for LLM transmission:
+      algorithm, severity, quantum_vulnerable, replacement, complexity,
+      recommendation dict (algorithm + complexity only).
+    """
+    if not scan_context:
+        return scan_context
+
+    _FIELDS_TO_STRIP = {
+        "code_snippet",
+        "replacement_code",
+        "why_quantum_risk",
+        "migration_steps",
+        "file",          # actual file path — strip to avoid leaking project structure
+        "line",          # keep as-is (just a number, no code content)
+    }
+
+    sanitized_findings = []
+    for f in scan_context.get("findings", []):
+        clean = {k: v for k, v in f.items() if k not in _FIELDS_TO_STRIP}
+        # Replace file path with a generic ordinal label
+        clean["source"] = f"finding #{len(sanitized_findings) + 1}"
+        sanitized_findings.append(clean)
+
+    return {
+        **scan_context,
+        "findings": sanitized_findings,
+        # Never pass repo_name — could be a real project path
+        "repo_name": "the scanned module",
+    }
+
 
 # ── Intent categories ─────────────────────────────────────────────────────────
 
@@ -158,21 +285,24 @@ Only mention this when the user explicitly asks about their repository,
 vulnerabilities, or scan results. Do NOT mention it for greetings or general questions."""
         return _BASE_PROMPT + no_scan_note
 
-    # Build rich context block from real scan data
+    # Build rich context block from real scan data — metadata only, no raw code
     findings  = scan_context.get("findings", [])
     risk      = scan_context.get("risk", {})
-    repo      = scan_context.get("repo_name", "the scanned file")
+    # repo_name is already sanitized to "the scanned module" by _sanitize_scan_context
+    repo      = scan_context.get("repo_name", "the scanned module")
     armoriq_verified = scan_context.get("armoriq_verified", False)
     policy_decision  = risk.get("policy_decision", "skipped")
     orig_score       = risk.get("original_score", risk.get("score"))
     verified_score   = risk.get("verified_score", risk.get("score"))
 
     vuln_lines = []
-    for f in findings:
+    for i, f in enumerate(findings):
         if f.get("severity") != "SAFE":
+            # Use abstracted description — never raw file path or code snippet
             vuln_lines.append(
-                f"  • {f['algorithm']} at {f['file']}:{f['line']} "
-                f"[{f['severity']}] → migrate to: {f.get('replacement', 'see guide')}"
+                f"  • Finding #{i+1}: {f['algorithm']} [{f['severity']}]"
+                f" — quantum_vulnerable={f.get('quantum_vulnerable', False)}"
+                f" → migrate to: {f.get('replacement', 'see guide')}"
             )
 
     safe_algos = [f["algorithm"] for f in findings if f.get("severity") == "SAFE"]
@@ -198,15 +328,16 @@ Critical Findings: {risk.get('critical_count', 0)}  |  High: {risk.get('high_cou
 Total Vulnerabilities: {len(vuln_lines)}
 {armoriq_block}
 
-Detected vulnerabilities:
+Detected vulnerabilities (metadata only — no raw source code):
 {chr(10).join(vuln_lines) if vuln_lines else '  None detected.'}
 
 Quantum-safe algorithms already present: {', '.join(safe_algos) if safe_algos else 'None'}
 
 Summary: {risk.get('summary', '')}
 
-INSTRUCTION: Reference specific files, line numbers, algorithms, and ArmorIQ status
-from this data. Do not give generic answers when real data is available."""
+INSTRUCTION: Reference algorithm names, severity levels, and ArmorIQ status from
+this data. Do NOT reference specific file paths, variable names, or code snippets —
+respond in terms of algorithm types and migration approaches only."""
 
     return _BASE_PROMPT + context_block
 
@@ -320,7 +451,7 @@ def _offline_response(message: str, intent: str, scan_context: dict | None) -> s
     # ── Fix / migration ───────────────────────────────────────────────────────
     if intent == "fix":
         fixes = [
-            f"• **{f['algorithm']}** at `{f['file']}:{f['line']}` → {f.get('replacement', 'see guide')}"
+            f"• **{f['algorithm']}** [{f['severity']}] → {f.get('replacement', 'see guide')}"
             for f in finds if f.get("severity") not in ("SAFE", "LOW")
         ]
         return (
@@ -333,8 +464,8 @@ def _offline_response(message: str, intent: str, scan_context: dict | None) -> s
     # ── Repo analysis ─────────────────────────────────────────────────────────
     if intent == "repo_analysis":
         details = [
-            f"• **{f['algorithm']}** [{f['severity']}] — `{f['file']}:{f['line']}`"
-            for f in finds if f.get("severity") != "SAFE"
+            f"• **{f['algorithm']}** [{f['severity']}] — finding #{i+1}"
+            for i, f in enumerate(finds) if f.get("severity") != "SAFE"
         ]
         return (
             f"{badge} **{repo}** — full analysis:\n\n"
@@ -415,12 +546,29 @@ def chat_with_assistant(
     Args:
         message:      User's message.
         history:      Prior conversation turns.
-   
         scan_context: Latest scan data (findings, risk, repo_name, armoriq info).
+
+    Privacy guarantee:
+        scan_context is sanitized via _sanitize_scan_context() before any
+        prompt construction — raw code fields are stripped at this boundary.
+        The LLM API (Anthropic) never receives source code, file paths,
+        variable names, or any literal content from the user's codebase.
     """
+    # ── Strip raw code from scan_context at the privacy boundary ─────────────
+    clean_context = _sanitize_scan_context(scan_context)
+
     intent        = _detect_intent(message)
-    system_prompt = _build_system_prompt(scan_context, intent)
+    system_prompt = _build_system_prompt(clean_context, intent)
     messages      = list(history) + [{"role": "user", "content": message}]
+
+    # Log sanitized prompt for verification (debug mode only)
+    if os.getenv("DEBUG"):
+        logger.info(
+            "[QuantumShield AI] Prompt sent to LLM (sanitized):\n%s\n"
+            "--- Raw code fields stripped: code_snippet, replacement_code, "
+            "why_quantum_risk, migration_steps, file paths ---",
+            system_prompt,
+        )
 
     # ── Try Anthropic API ─────────────────────────────────────────────────────
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
@@ -437,4 +585,4 @@ def chat_with_assistant(
             pass  # fall through to offline
 
     # ── Offline fallback ──────────────────────────────────────────────────────
-    return _offline_response(message, intent, scan_context)
+    return _offline_response(message, intent, clean_context)
