@@ -1,14 +1,6 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 
-const threats = [
-  { id: 1, name: "Sequential Breach",    level: "CRITICAL", score: 92, sourceFile: "auth/rsa_handler.py",    sourceIP: "45.249.971.52", algorithm: "RSA-2048",    status: "ACTIVE",      scanned: "2 min ago",  action: "Patch RSA → ML-KEM-768" },
-  { id: 2, name: "Global Disruption",    level: "HIGH",     score: 74, sourceFile: "crypto/ecdsa_sign.js",   sourceIP: "65.321.917.53", algorithm: "ECDSA P-256", status: "MONITORING",  scanned: "8 min ago",  action: "Replace ECDSA → ML-DSA-65" },
-  { id: 3, name: "Analytical Deduction", level: "HIGH",     score: 68, sourceFile: "config/ssl.conf",        sourceIP: "223.001.91.52", algorithm: "DHE-RSA",     status: "FLAGGED",     scanned: "15 min ago", action: "Migrate DHE → ML-KEM-1024" },
-  { id: 4, name: "Key Exposure Vector",  level: "CRITICAL", score: 88, sourceFile: "services/tls_config.py", sourceIP: "192.168.4.21",  algorithm: "RSA-1024",    status: "ACTIVE",      scanned: "1 min ago",  action: "Immediate: RSA-1024 is critically weak" },
-  { id: 5, name: "Legacy Hash Collision",level: "MEDIUM",   score: 45, sourceFile: "utils/checksum.go",      sourceIP: "10.0.0.88",     algorithm: "MD5",         status: "RESOLVED",    scanned: "1 hr ago",   action: "Upgrade MD5 → SHA3-256" },
-];
-
 const levelColors  = { CRITICAL: "#ff4444", HIGH: "#ffaa00", MEDIUM: "#00d4ff", LOW: "#00ff88" };
 const statusColors = { ACTIVE: "#ff4444", MONITORING: "#ffaa00", FLAGGED: "#f97316", RESOLVED: "#00ff88" };
 
@@ -385,9 +377,21 @@ function VulnModal({ threat, onClose }) {
 }
 
 // ── Main table component ──────────────────────────────────────────────────────
-export default function TopThreatsTable() {
+export default function TopThreatsTable({ threats = [] }) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
+
+  const formatScannedTime = (scanned) => {
+    if (!scanned) return "N/A";
+    if (scanned.includes("ago") || scanned.includes("hr")) return scanned;
+    try {
+      const d = new Date(scanned);
+      if (isNaN(d.getTime())) return scanned;
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " today";
+    } catch (e) {
+      return scanned;
+    }
+  };
 
   const filtered = threats.filter(t =>
     t.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -427,7 +431,16 @@ export default function TopThreatsTable() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map(threat => (
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={7} style={{ padding: "40px 16px", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: "14px" }}>
+                  {threats.length === 0
+                    ? "🛡️ No threats detected yet — run a scan to populate this table."
+                    : "No threats match your search."}
+                </td>
+              </tr>
+            ) : (
+              filtered.map(threat => (
               <tr
                 key={threat.id}
                 style={{
@@ -474,7 +487,7 @@ export default function TopThreatsTable() {
                     {threat.status}
                   </span>
                 </td>
-                <td style={{ padding: "14px 16px", color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>🕐 {threat.scanned}</td>
+                <td style={{ padding: "14px 16px", color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>🕐 {formatScannedTime(threat.scanned)}</td>
                 <td style={{ padding: "14px 16px", color: "rgba(255,255,255,0.5)", fontSize: "11px", fontFamily: "monospace" }}>{threat.sourceFile}</td>
                 <td style={{ padding: "14px 16px" }}>
                   <button
@@ -492,7 +505,8 @@ export default function TopThreatsTable() {
                   </button>
                 </td>
               </tr>
-            ))}
+            ))
+            )}
           </tbody>
         </table>
       </div>

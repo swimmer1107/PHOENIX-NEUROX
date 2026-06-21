@@ -824,7 +824,7 @@ const Scanner = () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
       
-      const response = await fetch("http://localhost:8000/api/scan/code", {
+      const response = await fetch(`${API_BASE_URL}/api/scan/code`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, filename: fileName || "pasted_code.py" }),

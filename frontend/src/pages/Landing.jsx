@@ -122,7 +122,7 @@ const Landing = () => {
                     textTransform: "uppercase",
                     textShadow: "0 0 10px rgba(0,255,136,0.5)",
                   }}>
-                    Zero-Knowledge Architecture
+                    Ephemeral Processing Architecture
                   </div>
                   <div style={{
                     color: "rgba(255,255,255,0.3)",
@@ -130,7 +130,7 @@ const Landing = () => {
                     letterSpacing: "1px",
                     marginTop: "2px",
                   }}>
-                    Privacy-First Security Analysis
+                    Privacy-First, Metadata-Only Reporting
                   </div>
                 </div>
 
@@ -153,7 +153,7 @@ const Landing = () => {
                     animation: "statusPulse 2s ease-in-out infinite",
                   }} />
                   <span style={{ color: "#00ff88", fontSize: "10px", fontWeight: "700" }}>
-                    Verified Private
+                    Code Never Stored
                   </span>
                 </div>
               </div>
@@ -191,10 +191,12 @@ const Landing = () => {
                   paddingLeft: "20px",
                   letterSpacing: "0.2px",
                 }}>
-                  Your code never leaves your machine. QuantumBridge performs all
-                  cryptographic analysis locally — no source code is transmitted,
-                  stored, or logged. Zero knowledge of your codebase means zero
-                  risk of exposure.
+                  Your source code is analyzed in memory and never stored.
+                  QuantumBridge processes your code transiently to detect
+                  vulnerabilities — only anonymized finding metadata (algorithm
+                  type, severity, location) is forwarded for policy enforcement
+                  and audit logging. Your raw code is never persisted, logged,
+                  or retained.
                 </p>
               </div>
 
@@ -207,14 +209,14 @@ const Landing = () => {
                 {[
                   {
                     icon: "🧠",
-                    label: "Local Analysis",
-                    desc: "All scanning runs in your browser",
+                    label: "Ephemeral Scanning",
+                    desc: "Code is processed in memory, never written to disk",
                     color: "#00ff88",
                   },
                   {
                     icon: "📡",
-                    label: "No Data Sent",
-                    desc: "Zero code transmission to servers",
+                    label: "Metadata Only",
+                    desc: "Only anonymized findings are forwarded, never raw code",
                     color: "#00d4ff",
                   },
                   {
@@ -294,7 +296,7 @@ const Landing = () => {
                 flexWrap: "wrap",
               }}>
                 {[
-                  "⚡ Instant local scanning",
+                  "⚡ Instant ephemeral scanning",
                   "🔐 End-to-end privacy",
                   "✅ NIST-aligned analysis",
                 ].map((tag, i) => (

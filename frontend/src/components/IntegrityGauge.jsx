@@ -1,13 +1,13 @@
 import React from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 
-const gaugeData = [
-  { name: "Critical", value: 2573, color: "#ff4444" },
-  { name: "Suspicious", value: 2117, color: "#ffaa00" },
-  { name: "Safe", value: 3179, color: "#00ff88" },
-];
+export default function IntegrityGauge({ critical = 0, suspicious = 0, safe = 0, score = 0 }) {
+  const gaugeData = [
+    { name: "Critical", value: critical, color: "#ff4444" },
+    { name: "Suspicious", value: suspicious, color: "#ffaa00" },
+    { name: "Safe", value: safe, color: "#00ff88" },
+  ];
 
-export default function IntegrityGauge() {
   return (
     <div style={{ position: "relative", width: "100%", height: "300px" }}>
       <ResponsiveContainer width="100%" height="100%">
@@ -52,7 +52,7 @@ export default function IntegrityGauge() {
           lineHeight: 1,
           textShadow: "0 0 20px rgba(0,255,136,0.4)",
         }}>
-          7869
+          {score}
         </div>
         <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)", marginTop: "4px", letterSpacing: "1px" }}>
           TOTAL INTEGRITY
