@@ -195,5 +195,5 @@ git push -u origin main
 
 ## Team
 
-**Team Phoenix | Cyberonites**
-*IntrusionX Second Edition | GLA University*
+**Team Phoenix**
+*GLA University*
