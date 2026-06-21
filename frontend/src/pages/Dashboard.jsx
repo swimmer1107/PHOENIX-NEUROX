@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ResponsiveContainer, 
   AreaChart, Area 
@@ -7,15 +7,83 @@ import GlowButton from '../components/GlowButton';
 import RiskBubbleChart from '../components/RiskBubbleChart';
 import IntegrityGauge from '../components/IntegrityGauge';
 import TopThreatsTable from '../components/TopThreatsTable';
+import API_BASE_URL from '../apiConfig';
 
 const Dashboard = () => {
   const [reportDownloaded, setReportDownloaded] = useState(false);
+  const [stats, setStats] = useState({
+    total_threats: 0,
+    defended: 0,
+    failed: 0,
+    total_scans: 0,
+    integrity_score: 0,
+    critical: 0,
+    suspicious: 0,
+    safe: 0,
+    history: [],
+    findings_list: []
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchStats = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/dashboard/stats`);
+        if (response.ok) {
+          const data = await response.json();
+          if (active) {
+            setStats(data);
+            setLoading(false);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching stats:", err);
+      }
+    };
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 3000); // Polling every 3 seconds
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const getDelta = (current, previous) => {
+    if (previous === undefined || previous === null || previous === 0) {
+      if (current > 0) return `+100% ▲`;
+      return "0% —";
+    }
+    const diff = current - previous;
+    if (diff === 0) return "0% —";
+    const percent = ((diff / previous) * 100).toFixed(1);
+    if (diff > 0) return `+${percent}% ▲`;
+    return `${percent}% ▼`;
+  };
+
+  const historyLen = stats.history?.length || 0;
+  const prevThreats = historyLen >= 2 ? stats.history[historyLen - 2].v : 0;
+  const prevScans = historyLen >= 2 ? historyLen - 1 : 0;
+
+  const threatsDelta = getDelta(stats.total_threats, prevThreats);
+  const scansDelta = getDelta(stats.total_scans, prevScans);
+
+  const threatsDeltaColor = prevThreats === stats.total_threats ? 'text-gray-500' : 'text-[#00ff88]';
+  const scansDeltaColor = prevScans === stats.total_scans ? 'text-gray-500' : 'text-[#00ff88]';
+
+  const threatSpark = stats.history.map(h => ({ v: h.v }));
+  const defendedSpark = stats.history.map(() => ({ v: 0 }));
+  const failedSpark = stats.history.map(h => ({ v: h.v }));
+  const scansSpark = stats.history.map((h, i) => ({ v: i + 1 }));
 
   const kpiData = [
-    { title: 'Total Threats Detected', value: 245, delta: '+5.3% ▲', deltaColor: 'text-[#00ff88]', color: 'text-danger', border: 'border-danger/30', fill: '#ff4444' },
-    { title: 'Defended (Patched)', value: 158, delta: '+12.1% ▲', deltaColor: 'text-[#00ff88]', color: 'text-primary', border: 'border-primary/30', fill: '#00ff88' },
-    { title: 'Failed / Vulnerable', value: 37, delta: '-2.1% ▼', deltaColor: 'text-[#ff4444]', color: 'text-danger', border: 'border-danger/30', fill: '#ff4444' },
-    { title: 'Total Files Scanned', value: 3845, delta: '+8.4% ▲', deltaColor: 'text-[#00ff88]', color: 'text-secondary', border: 'border-secondary/30', fill: '#00d4ff' },
+    { title: 'Total Threats Detected', value: stats.total_threats, delta: threatsDelta, deltaColor: threatsDeltaColor, color: 'text-danger', border: 'border-danger/30', fill: '#ff4444', spark: threatSpark },
+    { title: 'Defended (Patched)', value: stats.defended, delta: '0% —', deltaColor: 'text-gray-500', color: 'text-primary', border: 'border-primary/30', fill: '#00ff88', spark: defendedSpark },
+    { title: 'Failed / Vulnerable', value: stats.failed, delta: threatsDelta, deltaColor: threatsDeltaColor, color: 'text-danger', border: 'border-danger/30', fill: '#ff4444', spark: failedSpark },
+    { title: 'Total Files Scanned', value: stats.total_scans, delta: scansDelta, deltaColor: scansDeltaColor, color: 'text-secondary', border: 'border-secondary/30', fill: '#00d4ff', spark: scansSpark },
   ];
 
   const downloadDashboardReport = () => {
@@ -37,74 +105,50 @@ Platform    : QuantumBridge v1.0 | Team Phoenix | Cyberonites | GLA University
 
 EXECUTIVE SUMMARY
 ─────────────────
-Total Threats Detected    :  245   (+5.3% vs last week)
-Defended / Patched        :  158   (+12.1% vs last week)
-Failed / Vulnerable       :  37    (-2.1% vs last week)
-Total Files Scanned       :  3845  (+8.4% vs last week)
+Total Threats Detected    :  ${stats.total_threats}
+Defended / Patched        :  ${stats.defended}
+Failed / Vulnerable       :  ${stats.failed}
+Total Files Scanned       :  ${stats.total_scans}
 
-SECURITY INTEGRITY SCORE  :  7869 / 10000
-  Critical Components     :  2573
-  Suspicious Components   :  2117
-  Safe Components         :  3179
+SECURITY INTEGRITY SCORE  :  ${stats.integrity_score} / 10000
+  Critical Components     :  ${stats.critical}
+  Suspicious Components   :  ${stats.suspicious}
+  Safe Components         :  ${stats.safe}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 RISK DISTRIBUTION
 ─────────────────
-  At Risk          :  3,652 components  (HIGH PRIORITY)
-  New Detections   :  1,786 components
-  Breached         :    989 components  (CRITICAL)
-  Dormant          :  1,945 components
-  Monitored        :    828 components
-  Idle             :  1,289 components
+  At Risk          :  ${stats.suspicious} components  (HIGH PRIORITY)
+  New Detections   :  ${stats.history.length > 0 ? stats.history[stats.history.length - 1].new_findings : 0} components
+  Breached         :  ${stats.critical} components  (CRITICAL)
+  Dormant          :  ${stats.safe} components
+  Monitored        :  ${stats.failed} components
+  Idle             :  ${Math.max(0, stats.total_scans - stats.critical - stats.suspicious)} components
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 TOP CRITICAL THREATS
 ────────────────────
-1. Sequential Breach
-   Algorithm : RSA-2048          Severity : CRITICAL (92/100)
-   File      : auth/rsa_handler.py
-   Status    : ACTIVE
-   Action    : Patch RSA → ML-KEM-768 (NIST FIPS 203)
-
-2. Global Disruption
-   Algorithm : ECDSA P-256       Severity : HIGH (74/100)
-   File      : crypto/ecdsa_sign.js
-   Status    : MONITORING
-   Action    : Replace ECDSA → ML-DSA-65 (NIST FIPS 204)
-
-3. Analytical Deduction
-   Algorithm : DHE-RSA           Severity : HIGH (68/100)
-   File      : config/ssl.conf
-   Status    : FLAGGED
-   Action    : Migrate DHE → ML-KEM-1024 (NIST FIPS 203)
-
-4. Key Exposure Vector
-   Algorithm : RSA-1024          Severity : CRITICAL (88/100)
-   File      : services/tls_config.py
-   Status    : ACTIVE
-   Action    : Immediate — RSA-1024 is critically weak
-
-5. Legacy Hash Collision
-   Algorithm : MD5               Severity : MEDIUM (45/100)
-   File      : utils/checksum.go
-   Status    : RESOLVED
-   Action    : Upgrade MD5 → SHA3-256 (NIST FIPS 202)
+${stats.findings_list.length === 0 ? "No critical threats detected." : stats.findings_list.slice(0, 5).map((threat, idx) => `
+${idx + 1}. ${threat.name}
+   Algorithm : ${threat.algorithm}          Severity : ${threat.level} (${threat.score}/100)
+   File      : ${threat.sourceFile}
+   Status    : ${threat.status}
+   Action    : ${threat.action}
+`).join('\n')}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 RECOMMENDED IMMEDIATE ACTIONS
 ──────────────────────────────
-1. [URGENT] Patch RSA-2048 instances in auth/rsa_handler.py → ML-KEM-768
-2. [URGENT] Patch RSA-1024 in services/tls_config.py — critically weak key size
-3. [HIGH]   Replace ECDSA usage in crypto/ecdsa_sign.js → ML-DSA-65
-4. [HIGH]   Update DHE-RSA config in config/ssl.conf → ML-KEM-1024
-5. [MEDIUM] Upgrade MD5 in utils/checksum.go → SHA3-256
+${stats.findings_list.length === 0 ? "No immediate actions required." : stats.findings_list.slice(0, 5).map((threat, idx) => `
+${idx + 1}. [${threat.level}] Migrate ${threat.algorithm} in ${threat.sourceFile} → ${threat.action.split('→')[1]?.trim() || 'Quantum-Safe alternative'}
+`).join('')}
 
 NIST COMPLIANCE STATUS
 ──────────────────────
-  NIST FIPS 203 (ML-KEM) — Key Encapsulation   :  PARTIAL
+  NIST FIPS 203 (ML-KEM) — Key Encapsulation   :  ${stats.history.some(h => h.new_findings === 0) ? "COMPLIANT" : "PARTIAL"}
   NIST FIPS 204 (ML-DSA) — Digital Signatures  :  PARTIAL
   NIST FIPS 205 (SLH-DSA) — Hash Signatures    :  NON-COMPLIANT
   CNSA 2.0 Suite                                :  NON-COMPLIANT
@@ -131,8 +175,6 @@ Verify at: quantumbridge.io/verify/${reportId}
     setReportDownloaded(true);
     setTimeout(() => setReportDownloaded(false), 3000);
   };
-
-  const threatSparkData = [180, 210, 195, 230, 225, 240, 245].map(v => ({ v }));
 
   return (
     <div className="min-h-screen pt-24 pb-12 px-4 sm:px-8 max-w-7xl mx-auto animate-[fadeIn_0.3s_ease-out]">
@@ -185,11 +227,17 @@ Verify at: quantumbridge.io/verify/${reportId}
               <div className={`text-4xl font-mono font-bold ${kpi.color}`}>{kpi.value}</div>
             </div>
             <div className="h-12 w-full mt-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={threatSparkData}>
-                  <Area type="monotone" dataKey="v" stroke="none" fill={kpi.fill} fillOpacity={0.2} />
-                </AreaChart>
-              </ResponsiveContainer>
+              {kpi.spark.length >= 2 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={kpi.spark}>
+                    <Area type="monotone" dataKey="v" stroke="none" fill={kpi.fill} fillOpacity={0.2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full w-full flex items-center justify-center border border-dashed border-gray-850/50 rounded bg-black/10">
+                  <span className="text-[10px] text-gray-500 font-mono">Insufficient history</span>
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -201,20 +249,32 @@ Verify at: quantumbridge.io/verify/${reportId}
         {/* Security Integrity Gauge */}
         <div className="glass-card p-6 min-h-[380px] flex flex-col">
           <h2 className="text-xl font-bold mb-6">Security Integrity Gauge</h2>
-          <IntegrityGauge />
+          <IntegrityGauge 
+            critical={stats.critical} 
+            suspicious={stats.suspicious} 
+            safe={stats.safe} 
+            score={stats.integrity_score} 
+          />
         </div>
 
         {/* Risk Distribution Bubble Chart */}
         <div className="glass-card p-6 min-h-[380px] flex flex-col">
           <h2 className="text-xl font-bold mb-6">Risk Distribution</h2>
-          <RiskBubbleChart />
+          <RiskBubbleChart 
+            critical={stats.critical} 
+            suspicious={stats.suspicious} 
+            failed={stats.failed} 
+            safe={stats.safe} 
+            total_scans={stats.total_scans} 
+            new_detections={stats.history.length > 0 ? stats.history[stats.history.length - 1].new_findings : 0} 
+          />
         </div>
 
       </div>
 
       {/* Bottom Table */}
       <div className="glass-card p-6 overflow-hidden flex flex-col">
-        <TopThreatsTable />
+        <TopThreatsTable threats={stats.findings_list} />
       </div>
     </div>
   );

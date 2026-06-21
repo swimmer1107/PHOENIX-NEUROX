@@ -24,13 +24,66 @@ from integrations.armoriq_service import (
 
 load_dotenv()
 
+import sqlite3
+import threading
+import json
+import logging
+
+_db_lock = threading.Lock()
+_DB_PATH = os.path.join(os.path.dirname(__file__), "scan_history.db")
+
+def _init_db():
+    """Create the SQLite scan history table if it doesn't exist."""
+    with _db_lock:
+        conn = sqlite3.connect(_DB_PATH)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scan_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                findings TEXT NOT NULL,
+                risk TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+def _append_scan(timestamp: str, filename: str, findings: list, risk: dict):
+    """Persist a completed scan to SQLite (safe for multi-worker use)."""
+    with _db_lock:
+        conn = sqlite3.connect(_DB_PATH)
+        conn.execute(
+            "INSERT INTO scan_history (timestamp, filename, findings, risk) VALUES (?,?,?,?)",
+            (timestamp, filename, json.dumps(findings), json.dumps(risk))
+        )
+        conn.commit()
+        conn.close()
+
+def _load_scans() -> list:
+    """Load all scans from SQLite, ordered by insertion time."""
+    with _db_lock:
+        conn = sqlite3.connect(_DB_PATH)
+        rows = conn.execute(
+            "SELECT timestamp, filename, findings, risk FROM scan_history ORDER BY id ASC"
+        ).fetchall()
+        conn.close()
+    return [
+        {
+            "timestamp": r[0],
+            "filename":  r[1],
+            "findings":  json.loads(r[2]),
+            "risk":      json.loads(r[3]),
+        }
+        for r in rows
+    ]
+
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def _lifespan(app):
-    """Validate integration credentials on startup and log clear status."""
-    import logging
+    """Initialise DB and validate integration credentials on startup."""
     log = logging.getLogger(__name__)
+    _init_db()
     validate_credentials()
     from integrations.notion_service import _is_configured as notion_ok
     if notion_ok():
@@ -40,6 +93,9 @@ async def _lifespan(app):
     yield
 
 app = FastAPI(title="QuantumBridge API", version="1.0.0", lifespan=_lifespan)
+
+# SCAN_HISTORY kept as a compatibility alias for test access — real persistence uses SQLite
+SCAN_HISTORY: list = []  # used only by TestClient in tests; production reads from DB
 
 app.add_middleware(
     CORSMiddleware,
@@ -149,6 +205,11 @@ async def scan_code_input(input: CodeInput):
         repo_name=input.filename,
     ))
 
+    # Record scan outcome to history
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).isoformat()
+    _append_scan(ts, input.filename, findings, response["risk"])
+
     # ── 6. Return scanner result instantly ───────────────────────────────────
     return response
 
@@ -235,6 +296,11 @@ async def scan_file(file: UploadFile = File(...)):
         repo_name=file.filename,
     ))
 
+    # Record scan outcome to history
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).isoformat()
+    _append_scan(ts, file.filename, findings, response["risk"])
+
     # ── 5. Return scanner result instantly ───────────────────────────────────
     return response
 
@@ -256,15 +322,110 @@ async def ai_chat(msg: ChatMessage):
 
 @app.get("/api/dashboard/stats")
 async def dashboard_stats():
+    SCAN_HISTORY = _load_scans()
+    if not SCAN_HISTORY:
+        return {
+            "total_threats": 0,
+            "defended": 0,
+            "failed": 0,
+            "total_scans": 0,
+            "integrity_score": 0,
+            "critical": 0,
+            "suspicious": 0,
+            "safe": 0,
+            "history": [],
+            "findings_list": []
+        }
+
+    total_scans = len(SCAN_HISTORY)
+    total_threats = 0
+    defended = 0  # Starts at 0, no fix-tracking implemented yet
+
+    critical = 0
+    suspicious = 0
+    failed = 0
+    safe = 0
+
+    findings_list = []
+
+    for scan in SCAN_HISTORY:
+        scan_findings = scan.get("findings", [])
+        total_threats += len(scan_findings)
+
+        # If a scan had 0 findings, it is a completely safe module/file
+        if not scan_findings:
+            safe += 1
+
+        for f in scan_findings:
+            severity = f.get("severity")
+            if severity == "CRITICAL":
+                critical += 1
+            elif severity == "HIGH":
+                suspicious += 1
+            elif severity == "MEDIUM":
+                failed += 1
+            elif severity == "LOW":
+                safe += 1
+
+            # Derive per-finding score from scan's overall risk score, weighted by severity
+            severity_score_map = {"CRITICAL": 92, "HIGH": 74, "MEDIUM": 45, "LOW": 15}
+            finding_score = scan["risk"].get("score")
+            # Invert: higher scan risk score = lower individual finding score
+            if finding_score is not None:
+                base = severity_score_map.get(severity, 50)
+                finding_display_score = max(0, min(100, int(base * (1 - finding_score / 200))))
+            else:
+                finding_display_score = severity_score_map.get(severity, 50)
+
+            findings_list.append({
+                "id": len(findings_list) + 1,
+                "name": f"{f.get('algorithm')} Cryptographic Vulnerability" if f.get("quantum_vulnerable") else f"{f.get('algorithm')} Classical Vulnerability",
+                "level": severity,
+                "score": finding_display_score,
+                "sourceFile": f.get("file", "unknown"),
+                "sourceIP": "127.0.0.1",
+                "algorithm": f.get("algorithm"),
+                "status": "ACTIVE",
+                "scanned": scan["timestamp"],
+                "action": f"Migrate {f.get('algorithm')} → {f.get('replacement')}"
+            })
+
+    # Integrity Score: average of per-scan risk scores across all scans,
+    # scaled to 0–10000. A risk score of 100 = fully safe, 0 = fully broken.
+    # This means scanning vulnerable code lowers the score visibly,
+    # and clean scans raise it — giving a meaningful live gauge.
+    if SCAN_HISTORY:
+        avg_risk_score = sum(
+            scan["risk"].get("score", 100) for scan in SCAN_HISTORY
+        ) / len(SCAN_HISTORY)
+        integrity_score = int(avg_risk_score * 100)  # 0–10000
+    else:
+        integrity_score = 0
+
+    # Build history array for the sparkline trend (cumulative threats over scans)
+    history = []
+    running_threat_total = 0
+    for scan in SCAN_HISTORY:
+        new_findings = len(scan.get("findings", []))
+        running_threat_total += new_findings
+        history.append({
+            "v": running_threat_total,
+            "new_findings": new_findings,
+            "timestamp": scan["timestamp"],
+            "score": scan["risk"].get("score", 100)
+        })
+
     return {
-        "total_threats": 245,
-        "defended": 158,
-        "failed": 37,
-        "total_scans": 3845,
-        "integrity_score": 7869,
-        "critical": 2573,
-        "suspicious": 2117,
-        "safe": 3179,
+        "total_threats": total_threats,
+        "defended": defended,
+        "failed": failed,
+        "total_scans": total_scans,
+        "integrity_score": integrity_score,
+        "critical": critical,
+        "suspicious": suspicious,
+        "safe": safe,
+        "history": history,
+        "findings_list": findings_list
     }
 
 

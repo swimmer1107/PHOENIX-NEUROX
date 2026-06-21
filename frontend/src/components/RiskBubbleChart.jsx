@@ -1,15 +1,15 @@
 import React from "react";
 
-const bubbles = [
-  { label: "At Risk", count: 3652, color: "#ff4444", x: 38, y: 42, size: 72 },
-  { label: "New Detections", count: 1786, color: "#a855f7", x: 72, y: 22, size: 54 },
-  { label: "Breached", count: 989, color: "#f97316", x: 82, y: 62, size: 42 },
-  { label: "Dormant", count: 1945, color: "#00d4ff", x: 20, y: 68, size: 58 },
-  { label: "Monitored", count: 828, color: "#00ff88", x: 60, y: 72, size: 38 },
-  { label: "Idle", count: 1289, color: "#6366f1", x: 55, y: 38, size: 46 },
-];
+export default function RiskBubbleChart({ critical = 0, suspicious = 0, failed = 0, safe = 0, total_scans = 0, new_detections = 0 }) {
+  const bubbles = [
+    { label: "At Risk", count: suspicious, color: "#ff4444", x: 38, y: 42, size: 72 },
+    { label: "New Detections", count: new_detections, color: "#a855f7", x: 72, y: 22, size: 54 },
+    { label: "Breached", count: critical, color: "#f97316", x: 82, y: 62, size: 42 },
+    { label: "Dormant", count: safe, color: "#00d4ff", x: 20, y: 68, size: 58 },
+    { label: "Monitored", count: failed, color: "#00ff88", x: 60, y: 72, size: 38 },
+    { label: "Idle", count: Math.max(0, total_scans - critical - suspicious), color: "#6366f1", x: 55, y: 38, size: 46 },
+  ];
 
-export default function RiskBubbleChart() {
   return (
     <div style={{ position: "relative", width: "100%", height: "320px", overflow: "hidden" }}>
       {/* Subtle grid lines */}
